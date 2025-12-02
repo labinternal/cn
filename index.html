@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CN Tasks — Dashboard</title>
+<style>
+  :root{--bg:#0b1220;--card:#0e1724;--muted:#9aa6b2;--accent:#0ea5a4;color-scheme:dark}
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#071021,#071a2b);color:#e6eef6}
+  .wrap{max-width:1200px;margin:22px auto;display:grid;grid-template-columns:320px 1fr;gap:18px;padding:18px}
+  .sidebar{background:var(--card);padding:14px;border-radius:10px;min-height:70vh;box-shadow:0 8px 28px rgba(2,6,23,0.6)}
+  .sidebar h1{margin:0 0 8px 0;color:var(--accent);font-size:18px}
+  .search{width:100%;padding:10px;border-radius:8px;border:none;background:rgba(255,255,255,0.02);color:var(--muted)}
+  .task-list{margin-top:12px;overflow:auto;max-height:56vh;padding-right:6px}
+  .task-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;color:var(--muted);cursor:pointer}
+  .task-item:hover{background:rgba(255,255,255,0.02);color:#fff}
+  .task-item.active{background:linear-gradient(90deg,var(--accent),#6ee7b7);color:#02121a;font-weight:600}
+  .main{background:var(--card);padding:16px;border-radius:10px;min-height:70vh;box-shadow:0 8px 28px rgba(2,6,23,0.6);display:flex;flex-direction:column}
+  .header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  h2{margin:6px 0 4px 0;color:var(--accent)}
+  p.desc{color:var(--muted);margin:0 0 12px 0}
+  .meta{color:var(--muted);font-size:13px;margin-bottom:12px}
+  .viewer{flex:1;background:#07121a;border-radius:8px;padding:10px;display:flex;flex-direction:column}
+  .iframe-wrap{flex:1;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.03)}
+  iframe{width:100%;height:100%;border:0}
+  .links{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .btn{background:var(--accent);color:#02121a;padding:8px 10px;border-radius:8px;text-decoration:none;font-weight:600}
+  .small{font-size:13px;color:var(--muted)}
+  footer.small{margin-top:10px;color:var(--muted);font-size:13px}
+  @media (max-width:900px){
+    .wrap{grid-template-columns:1fr; padding:12px}
+    .sidebar{display:none}
+    .viewer{min-height:60vh}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <aside class="sidebar" aria-label="Task list">
+      <h1>CN Tasks Dashboard</h1>
+      <input id="search" class="search" placeholder="Filter tasks (number or keyword)" />
+      <div id="taskList" class="task-list" role="list"></div>
+      <footer class="small" style="margin-top:12px">
+        Upload your task PDF files into the same repo/folder as this file. Click a task to open its PDF.
+      </footer>
+    </aside>
+
+    <main class="main">
+      <div class="header">
+        <div>
+          <h2 id="taskTitle">Select a task</h2>
+          <div class="meta" id="taskMeta">Click a task on the left to open its PDF and see quick links.</div>
+        </div>
+        <div class="small" id="fileInfo"></div>
+      </div>
+
+      <div class="viewer">
+        <div class="links" id="actionLinks" style="margin-bottom:8px"></div>
+        <div class="iframe-wrap" id="iframeWrap" aria-live="polite">
+          <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted)">
+            No document loaded — select a task on the left.
+          </div>
+        </div>
+        <footer class="small">If a file doesn't open, confirm the exact PDF filename is in the repo and matches the filename shown under the task.</footer>
+      </div>
+    </main>
+  </div>
+
+<script>
+/*
+  Single-file dashboard.
+  - Put your PDFs in the same folder.
+  - Filenames below reflect the uploaded files I found. If your filenames differ, rename the files to match or edit the mapping here.
+*/
+
+const tasks = [
+  { id:1, name:"Data Link Layer framing methods", file:"TASK 1.pdf" },
+  { id:2, name:"Data Link layer protocols", file:"TASK 2(1).pdf" },
+  { id:3, name:"Routing & Token Bucket", file:"TASK 3.pdf" },
+  { id:4, name:"DES & RSA algorithms", file:"Task_4.pdf" },            // placeholder filename (not uploaded) — replace if needed
+  { id:5, name:"Hubs, Switches, LAN & ARP", file:"Task_5.pdf" },
+  { id:6, name:"Switch configuration & network commands", file:"task_6.pdf" },
+  { id:7, name:"Router configuration & NAT", file:"task_7.pdf" },      // multiple task_7 files exist; pick main one
+  { id:7.1, name:"Task-7 (extra)", file:"Task_7b.pdf" },              // extra/alternate Task 7 file
+  { id:8, name:"VLANs & Static Routing", file:"Task_8a.pdf" },
+  { id:8.1, name:"Task-8 (extra)", file:"task_8b.pdf" },
+  { id:9, name:"Dynamic Routing — RIP", file:"Task_9RIP.pdf" },
+  { id:9.1, name:"Dynamic Routing — OSPF", file:"Task_9bospf.pdf" },
+  { id:10, name:"DHCP Server (10a)", file:"Task_10a(DHCP).pdf" },
+  { id:10.1, name:"SSH / Telnet (10b)", file:"task 10(b).pdf" },
+  { id:11, name:"Web Server & DNS (11a)", file:"Task 11a.pdf" },
+  { id:11.1, name:"Wireshark & NIC (11b)", file:"Task_11b(wireshark).pdf" },
+  { id:12, name:"IoT — Smart Home (Task-12)", file:"Task 12.pdf" }
+];
+
+// Build list
+const listEl = document.getElementById('taskList');
+const iframeWrap = document.getElementById('iframeWrap');
+const taskTitle = document.getElementById('taskTitle');
+const taskMeta = document.getElementById('taskMeta');
+const fileInfo = document.getElementById('fileInfo');
+const actionLinks = document.getElementById('actionLinks');
+
+function renderList(items){
+  listEl.innerHTML = '';
+  items.forEach(t=>{
+    const el = document.createElement('div');
+    el.className = 'task-item';
+    el.role = 'listitem';
+    el.tabIndex = 0;
+    el.dataset.file = t.file;
+    el.dataset.id = t.id;
+    el.innerHTML = `<div><strong>Task ${t.id}</strong> — ${escapeHtml(t.name)}</div>
+                    <div class="small" style="font-size:12px;color:var(--muted)">${escapeHtml(t.file)}</div>`;
+    el.onclick = ()=> openTask(t);
+    el.onkeydown = (e)=>{ if(e.key === 'Enter') openTask(t); };
+    listEl.appendChild(el);
+  });
+}
+
+function openTask(t){
+  // mark active
+  document.querySelectorAll('.task-item').forEach(n=>n.classList.remove('active'));
+  const sel = Array.from(document.querySelectorAll('.task-item')).find(n=>n.dataset.id==t.id);
+  if(sel) sel.classList.add('active');
+
+  taskTitle.textContent = `Task ${t.id} — ${t.name}`;
+  taskMeta.textContent = `File: ${t.file}`;
+  fileInfo.textContent = t.file;
+
+  actionLinks.innerHTML = '';
+  const rawLink = document.createElement('a');
+  rawLink.className = 'btn';
+  rawLink.textContent = 'Open PDF';
+  rawLink.href = encodeURI(t.file);
+  rawLink.target = '_blank';
+  rawLink.rel = 'noopener';
+  actionLinks.appendChild(rawLink);
+
+  const download = document.createElement('a');
+  download.className = 'btn';
+  download.textContent = 'Open in viewer';
+  download.href = '#';
+  download.onclick = (e)=>{
+    e.preventDefault();
+    loadPdfInIframe(t.file);
+  };
+  actionLinks.appendChild(download);
+
+  // quick readme link (if you keep a README per task, pattern can be added)
+  const note = document.createElement('div');
+  note.className = 'small';
+  note.style.marginLeft = '6px';
+  note.textContent = 'If a file fails to load, confirm the filename matches exactly (case & spaces).';
+  actionLinks.appendChild(note);
+}
+
+function loadPdfInIframe(filename){
+  // create iframe with encoded URI
+  iframeWrap.innerHTML = '';
+  const iframe = document.createElement('iframe');
+  iframe.src = encodeURI(filename);
+  iframe.title = filename;
+  iframe.loading = 'eager';
+  iframeWrap.appendChild(iframe);
+}
+
+// search
+document.getElementById('search').addEventListener('input', e=>{
+  const q = e.target.value.toLowerCase().trim();
+  const filtered = tasks.filter(t=>{
+    return String(t.id).toLowerCase().includes(q)
+      || t.name.toLowerCase().includes(q)
+      || t.file.toLowerCase().includes(q);
+  });
+  renderList(filtered);
+});
+
+// escape helper
+function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// initial render (only primary list entries sorted by id)
+renderList(tasks.filter(t=>Number.isInteger(t.id)).sort((a,b)=>a.id-b.id));
+
+// select first task automatically if its file likely exists
+setTimeout(()=>{
+  const first = tasks.find(t=>t.id===1);
+  if(first) openTask(first);
+}, 250);
+</script>
+</body>
+</html>
